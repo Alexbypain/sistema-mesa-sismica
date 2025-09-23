@@ -8,10 +8,20 @@ import numpy as np
 from obspy import read
 import os
 import threading
+import time
 
 import app_state
+from serial_handler import send_command
 
 RECORDS_FOLDER_NAME = "sismic_records"
+
+
+def _set_viewer_status(message: str) -> None:
+    """Updates the shared playback status message and marks it dirty."""
+    with app_state.data_lock:
+        app_state.viewer_playback_status = message
+        app_state.viewer_playback_status_dirty = True
+    print(f"Viewer: {message}")
 
 def get_records_folder_path():
     """Gets the absolute path to the sismic_records folder."""
@@ -21,17 +31,22 @@ def get_records_folder_path():
 def load_data_for_viewer_thread():
     """Loads all seismic data from the records folder into the viewer's state variables."""
     print("Viewer: Starting data load...")
+    _set_viewer_status("Loading seismic data...")
     folder_path = get_records_folder_path()
-    
+
     # Reset state
     app_state.viewer_seismic_files.clear()
     app_state.viewer_all_traces.clear()
-    app_state.viewer_selected_trace_index = None
+    with app_state.data_lock:
+        app_state.viewer_selected_trace_index = None
+        app_state.viewer_playback_start_time = 0.0
+        app_state.viewer_playback_paused = False
 
     try:
         files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.mseed', '.msd', '.miniseed'))]
         if not files:
             print("Viewer: No seismic files found.")
+            _set_viewer_status("No seismic files found in 'sismic_records'.")
             return
 
         for file_name in files:
@@ -63,10 +78,13 @@ def load_data_for_viewer_thread():
 
     except Exception as e:
         print(f"Viewer: General error loading data: {e}")
+        _set_viewer_status(f"Error loading data: {e}")
     finally:
         # Signal the GUI thread that it needs to redraw the file list
         app_state.viewer_data_dirty.set()
         print("Viewer: Data load finished.")
+        if app_state.viewer_all_traces:
+            _set_viewer_status("Data loaded. Select a trace to play.")
 
 def process_selected_trace():
     """Processes the currently selected trace to get acceleration and displays it."""
@@ -101,3 +119,197 @@ def process_selected_trace():
                 dpg.add_line_series(times.tolist(), accel_data.tolist(), label="Acceleration")
             dpg.fit_axis_data("accel_x_axis")
             dpg.fit_axis_data("accel_y_axis")
+
+
+def _prepare_trace_for_playback(trace):
+    """Generates the displacement sequence and sampling interval for playback."""
+    working_trace = trace.copy()
+    working_trace.detrend("linear")
+    working_trace.taper(max_percentage=0.05, type="hann")
+    working_trace.integrate(method='cumtrapz')
+    working_trace.integrate(method='cumtrapz')
+
+    data = working_trace.data.astype(np.float64)
+    if data.size == 0:
+        raise ValueError("Trace contains no samples.")
+
+    max_abs = np.max(np.abs(data))
+    if not np.isfinite(max_abs) or max_abs == 0:
+        raise ValueError("Trace amplitude is zero.")
+
+    with app_state.data_lock:
+        amplitude = int(abs(app_state.viewer_playback_amplitude))
+    amplitude = max(amplitude, 1)
+
+    scaled = np.clip((data / max_abs) * amplitude, -amplitude, amplitude).astype(int)
+
+    sample_interval = getattr(working_trace.stats, "delta", None)
+    if sample_interval is None or not np.isfinite(sample_interval) or sample_interval <= 0:
+        sample_interval = 0.01
+
+    return scaled, float(sample_interval)
+
+
+def start_playback():
+    """Starts a background thread to play the selected seismic trace on the motor."""
+    if not (app_state.ser and app_state.ser.is_open):
+        _set_viewer_status("Error: Connect to the table first.")
+        return
+
+    with app_state.data_lock:
+        selected_index = app_state.viewer_selected_trace_index
+        is_running = app_state.sismo_running
+        wave_running = app_state.wave_running
+        trace_info = None
+        if (selected_index is not None and
+                0 <= selected_index < len(app_state.viewer_all_traces)):
+            trace_info = app_state.viewer_all_traces[selected_index]
+
+    if trace_info is None:
+        _set_viewer_status("Error: Select a trace before playing.")
+        return
+
+    if is_running:
+        _set_viewer_status("Playback already running.")
+        return
+
+    if wave_running:
+        _set_viewer_status("Error: Stop the sine wave generator before playback.")
+        return
+
+    with app_state.data_lock:
+        app_state.sismo_running = True
+        app_state.viewer_playback_paused = False
+
+    metadata = {
+        'id': trace_info['id'],
+        'file_name': trace_info['file_name'],
+        'num_samples': len(trace_info['data'])
+    }
+    trace_copy = trace_info['obspy_trace'].copy()
+
+    _set_viewer_status(f"Preparing {metadata['id']} for playback...")
+    threading.Thread(target=_playback_worker, args=(trace_copy, metadata), daemon=True).start()
+
+
+def _playback_worker(trace, metadata):
+    """Worker routine that streams the processed trace to the motor."""
+    try:
+        scaled_data, sample_interval = _prepare_trace_for_playback(trace)
+    except Exception as exc:
+        _set_viewer_status(f"Error: {exc}")
+        with app_state.data_lock:
+            app_state.sismo_running = False
+            app_state.viewer_playback_paused = False
+        send_command("m0")
+        return
+
+    total_samples = len(scaled_data)
+    if total_samples == 0:
+        _set_viewer_status("Error: Trace produced no samples.")
+        with app_state.data_lock:
+            app_state.sismo_running = False
+            app_state.viewer_playback_paused = False
+        send_command("m0")
+        return
+
+    sample_interval = max(sample_interval, 0.001)
+
+    with app_state.data_lock:
+        start_time = max(0.0, float(app_state.viewer_playback_start_time))
+
+    start_index = int(start_time / sample_interval) if sample_interval > 0 else 0
+    if start_index >= total_samples:
+        start_index = max(total_samples - 1, 0)
+
+    if start_index > 0:
+        scaled_data = scaled_data[start_index:]
+        total_samples = len(scaled_data)
+
+    with app_state.data_lock:
+        app_state.viewer_playback_paused = False
+
+    with app_state.data_lock:
+        app_state.expected_wave_data.clear()
+        app_state.x_data.clear()
+        app_state.y_data.clear()
+        app_state.plot_start_time = time.time()
+
+    if dpg.does_item_exist("speed_input"):
+        send_command(f"s{dpg.get_value('speed_input')}")
+    if dpg.does_item_exist("accel_input"):
+        send_command(f"a{dpg.get_value('accel_input')}")
+
+    if start_index > 0:
+        _set_viewer_status(
+            f"Playing {total_samples} samples from {metadata.get('file_name', 'trace')} (starting at {start_time:.2f}s)...")
+    else:
+        _set_viewer_status(f"Playing {total_samples} samples from {metadata.get('file_name', 'trace')}...")
+
+    playback_offset = start_index * sample_interval
+    playback_start = time.time() - playback_offset
+    try:
+        for raw_position in scaled_data:
+            while True:
+                with app_state.data_lock:
+                    running = app_state.sismo_running
+                    paused = app_state.viewer_playback_paused
+                if not running:
+                    _set_viewer_status("Playback stopped by user.")
+                    send_command("m0")
+                    return
+                if not paused:
+                    break
+                time.sleep(0.05)
+
+            position = int(raw_position)
+            send_command(f"m{position}")
+
+            current_time = time.time() - playback_start
+            with app_state.data_lock:
+                app_state.expected_wave_data.append((current_time, position))
+                if len(app_state.expected_wave_data) > app_state.max_points:
+                    app_state.expected_wave_data.popleft()
+
+            time.sleep(sample_interval)
+
+    except Exception as exc:
+        _set_viewer_status(f"Error during playback: {exc}")
+    else:
+        _set_viewer_status("Playback finished.")
+    finally:
+        send_command("m0")
+        with app_state.data_lock:
+            app_state.sismo_running = False
+            app_state.viewer_playback_paused = False
+
+
+def stop_playback():
+    """Signals the playback thread to stop streaming commands."""
+    with app_state.data_lock:
+        was_running = app_state.sismo_running
+        app_state.sismo_running = False
+        app_state.viewer_playback_paused = False
+
+    if was_running:
+        _set_viewer_status("Stopping playback...")
+
+
+def toggle_pause_playback():
+    """Toggles between paused and resumed playback states."""
+    with app_state.data_lock:
+        is_running = app_state.sismo_running
+        is_paused = app_state.viewer_playback_paused
+
+    if not is_running:
+        _set_viewer_status("Playback is not running.")
+        return
+
+    with app_state.data_lock:
+        app_state.viewer_playback_paused = not is_paused
+        now_paused = app_state.viewer_playback_paused
+
+    if now_paused:
+        _set_viewer_status("Playback paused.")
+    else:
+        _set_viewer_status("Resuming playback...")

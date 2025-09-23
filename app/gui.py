@@ -3,7 +3,6 @@
 import dearpygui.dearpygui as dpg
 import threading
 import time
-import numpy as np
 
 import app_state
 from serial_handler import (find_serial_ports, connect_serial, disconnect_serial, send_command, wave_generator_thread)
@@ -101,9 +100,30 @@ def stop_wave_callback():
 
 def _viewer_on_trace_select(sender, app_data, user_data):
     """Callback triggered when a trace in the viewer is clicked."""
-    app_state.viewer_selected_trace_index = user_data
+    with app_state.data_lock:
+        app_state.viewer_selected_trace_index = user_data
+        app_state.viewer_playback_start_time = 0.0
     _update_viewer_file_tree()
     _update_viewer_detailed_plot()
+
+
+def _viewer_update_start_time_label(value: float) -> None:
+    """Updates the start time label below the detailed plot."""
+    if dpg.does_item_exist("viewer_playback_marker_label"):
+        dpg.set_value("viewer_playback_marker_label", f"Selected start time: {value:.2f} s")
+
+
+def _viewer_start_marker_changed(sender, app_data):
+    """Stores the start time selected with the draggable marker."""
+    try:
+        new_value = float(app_data)
+    except (TypeError, ValueError):
+        return
+
+    with app_state.data_lock:
+        app_state.viewer_playback_start_time = new_value
+
+    _viewer_update_start_time_label(new_value)
 
 def _update_viewer_file_tree():
     """Redraws the file list and traces in the left panel of the viewer."""
@@ -142,14 +162,67 @@ def _update_viewer_detailed_plot():
             f"Max Amplitude: {trace_data['max_amp']:.3e}")
     dpg.add_text(info, parent=parent_container)
     dpg.add_separator(parent=parent_container)
+    times = trace_data['times'].tolist()
+    samples = trace_data['data'].tolist()
+    min_time = float(times[0]) if times else 0.0
+    max_time = float(times[-1]) if times else 0.0
+
+    with app_state.data_lock:
+        start_time = float(app_state.viewer_playback_start_time)
+
+    if max_time < min_time:
+        max_time = min_time
+
+    start_time = min(max(start_time, min_time), max_time)
+
+    with app_state.data_lock:
+        app_state.viewer_playback_start_time = start_time
+
     with dpg.plot(label="Detailed View", height=-50, width=-1, parent=parent_container):
         x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)")
         with dpg.plot_axis(dpg.mvYAxis, label="Amplitude") as y_axis:
-            dpg.add_line_series(trace_data['times'].tolist(), trace_data['data'].tolist(), label=trace_data['id'])
+            dpg.add_line_series(times, samples, label=trace_data['id'])
+            if times:
+                dpg.add_drag_line(tag="viewer_playback_marker",
+                                  default_value=start_time,
+                                  vertical=True,
+                                  color=(255, 0, 0, 180),
+                                  thickness=2,
+                                  callback=_viewer_start_marker_changed,
+                                  clamped=True,
+                                  min_value=min_time,
+                                  max_value=max_time)
         dpg.fit_axis_data(x_axis)
         dpg.fit_axis_data(y_axis)
+
     with dpg.group(horizontal=True, parent=parent_container):
-        dpg.add_button(label="Process for Shaking Table", callback=svh.process_selected_trace, width=-1, height=30)
+        dpg.add_button(label="Process", callback=svh.process_selected_trace, width=180, height=30)
+        dpg.add_button(label="Play on Table", tag="viewer_play_button", callback=svh.start_playback, width=160, height=30)
+        dpg.add_button(label="Pause", tag="viewer_pause_button", callback=svh.toggle_pause_playback, width=120, height=30)
+        dpg.add_button(label="Stop", tag="viewer_stop_button", callback=svh.stop_playback, width=120, height=30)
+    dpg.add_text("Selected start time: 0.00 s", tag="viewer_playback_marker_label", parent=parent_container)
+    _viewer_update_start_time_label(start_time)
+    dpg.add_slider_int(label="Playback Amplitude (steps)",
+                       tag="viewer_playback_amplitude_slider",
+                       default_value=app_state.viewer_playback_amplitude,
+                       min_value=100,
+                       max_value=10000,
+                       callback=_viewer_amplitude_changed,
+                       parent=parent_container)
+    dpg.add_text(f"Status: {app_state.viewer_playback_status}",
+                 tag="viewer_playback_status_label",
+                 parent=parent_container)
+    dpg.add_separator(parent=parent_container)
+    dpg.add_text("Commands sent to motor", parent=parent_container)
+    with dpg.child_window(tag="viewer_command_log_container", parent=parent_container, height=140, border=True):
+        dpg.add_input_text(tag="viewer_command_log_output", multiline=True, readonly=True, width=-1, height=-1)
+
+
+def _viewer_amplitude_changed(sender, app_data):
+    """Stores the latest amplitude selected by the user for playback."""
+    with app_state.data_lock:
+        app_state.viewer_playback_amplitude = int(app_data)
+
 
 # <<< END: VIEWER FUNCTIONS >>>
 
@@ -161,7 +234,7 @@ def update_gui_callbacks():
         _update_viewer_file_tree()
         _update_viewer_detailed_plot()
         app_state.viewer_data_dirty.clear()
-    
+
     # <<< REMOVED LOGIC RELATED TO THE DELETED SISMOS LOCALES TAB >>>
     # if app_state.sismo_list_dirty:
     #     update_sismo_visual_list()
@@ -170,6 +243,9 @@ def update_gui_callbacks():
     # if dpg.does_item_exist("sismo_status"): dpg.set_value("sismo_status", app_state.sismo_status_message)
     # if dpg.does_item_exist("sismo_playback_status"): dpg.set_value("sismo_playback_status", app_state.sismo_playback_status_message)
     
+    status_dirty = False
+    status_message = ""
+    is_playing = False
     with app_state.data_lock:
         if app_state.x_data and app_state.y_data and dpg.does_item_exist("series_real_comp"):
             dpg.set_value("series_real_comp", [list(app_state.x_data), list(app_state.y_data)])
@@ -187,7 +263,45 @@ def update_gui_callbacks():
             if dpg.does_item_exist("console_send_output"): dpg.set_value("console_send_output", "\n".join(app_state.log_sent))
             if dpg.does_item_exist("console_recv_container"): dpg.set_y_scroll("console_recv_container", -1.0)
             if dpg.does_item_exist("console_send_container"): dpg.set_y_scroll("console_send_container", -1.0)
+            if dpg.does_item_exist("viewer_command_log_output"): dpg.set_value("viewer_command_log_output", "\n".join(app_state.log_sent))
+            if dpg.does_item_exist("viewer_command_log_container"): dpg.set_y_scroll("viewer_command_log_container", -1.0)
             app_state.log_dirty = False
+
+        if app_state.viewer_playback_status_dirty:
+            status_dirty = True
+            status_message = app_state.viewer_playback_status
+            app_state.viewer_playback_status_dirty = False
+
+        is_playing = app_state.sismo_running
+        is_paused = app_state.viewer_playback_paused
+        start_time = app_state.viewer_playback_start_time
+
+    _viewer_update_start_time_label(start_time)
+
+    is_connected = bool(app_state.ser and app_state.ser.is_open)
+
+    if dpg.does_item_exist("viewer_play_button"):
+        if is_playing or not is_connected:
+            dpg.disable_item("viewer_play_button")
+        else:
+            dpg.enable_item("viewer_play_button")
+
+    if dpg.does_item_exist("viewer_pause_button"):
+        if is_playing:
+            dpg.enable_item("viewer_pause_button")
+            dpg.set_item_label("viewer_pause_button", "Resume" if is_paused else "Pause")
+        else:
+            dpg.disable_item("viewer_pause_button")
+            dpg.set_item_label("viewer_pause_button", "Pause")
+
+    if dpg.does_item_exist("viewer_stop_button"):
+        if is_playing:
+            dpg.enable_item("viewer_stop_button")
+        else:
+            dpg.disable_item("viewer_stop_button")
+
+    if status_dirty and dpg.does_item_exist("viewer_playback_status_label"):
+        dpg.set_value("viewer_playback_status_label", f"Status: {status_message}")
 
 def create_gui():
     dpg.create_context()
