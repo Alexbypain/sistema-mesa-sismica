@@ -149,7 +149,30 @@ def _update_viewer_detailed_plot():
         dpg.fit_axis_data(x_axis)
         dpg.fit_axis_data(y_axis)
     with dpg.group(horizontal=True, parent=parent_container):
-        dpg.add_button(label="Process for Shaking Table", callback=svh.process_selected_trace, width=-1, height=30)
+        dpg.add_button(label="Process", callback=svh.process_selected_trace, width=180, height=30)
+        dpg.add_button(label="Play on Table", tag="viewer_play_button", callback=svh.start_playback, width=180, height=30)
+        dpg.add_button(label="Stop", tag="viewer_stop_button", callback=svh.stop_playback, width=120, height=30)
+    dpg.add_slider_int(label="Playback Amplitude (steps)",
+                       tag="viewer_playback_amplitude_slider",
+                       default_value=app_state.viewer_playback_amplitude,
+                       min_value=100,
+                       max_value=10000,
+                       callback=_viewer_amplitude_changed,
+                       parent=parent_container)
+    dpg.add_text(f"Status: {app_state.viewer_playback_status}",
+                 tag="viewer_playback_status_label",
+                 parent=parent_container)
+    dpg.add_separator(parent=parent_container)
+    dpg.add_text("Commands sent to motor", parent=parent_container)
+    with dpg.child_window(tag="viewer_command_log_container", parent=parent_container, height=140, border=True):
+        dpg.add_input_text(tag="viewer_command_log_output", multiline=True, readonly=True, width=-1, height=-1)
+
+
+def _viewer_amplitude_changed(sender, app_data):
+    """Stores the latest amplitude selected by the user for playback."""
+    with app_state.data_lock:
+        app_state.viewer_playback_amplitude = int(app_data)
+
 
 # <<< END: VIEWER FUNCTIONS >>>
 
@@ -161,7 +184,7 @@ def update_gui_callbacks():
         _update_viewer_file_tree()
         _update_viewer_detailed_plot()
         app_state.viewer_data_dirty.clear()
-    
+
     # <<< REMOVED LOGIC RELATED TO THE DELETED SISMOS LOCALES TAB >>>
     # if app_state.sismo_list_dirty:
     #     update_sismo_visual_list()
@@ -170,6 +193,9 @@ def update_gui_callbacks():
     # if dpg.does_item_exist("sismo_status"): dpg.set_value("sismo_status", app_state.sismo_status_message)
     # if dpg.does_item_exist("sismo_playback_status"): dpg.set_value("sismo_playback_status", app_state.sismo_playback_status_message)
     
+    status_dirty = False
+    status_message = ""
+    is_playing = False
     with app_state.data_lock:
         if app_state.x_data and app_state.y_data and dpg.does_item_exist("series_real_comp"):
             dpg.set_value("series_real_comp", [list(app_state.x_data), list(app_state.y_data)])
@@ -187,7 +213,33 @@ def update_gui_callbacks():
             if dpg.does_item_exist("console_send_output"): dpg.set_value("console_send_output", "\n".join(app_state.log_sent))
             if dpg.does_item_exist("console_recv_container"): dpg.set_y_scroll("console_recv_container", -1.0)
             if dpg.does_item_exist("console_send_container"): dpg.set_y_scroll("console_send_container", -1.0)
+            if dpg.does_item_exist("viewer_command_log_output"): dpg.set_value("viewer_command_log_output", "\n".join(app_state.log_sent))
+            if dpg.does_item_exist("viewer_command_log_container"): dpg.set_y_scroll("viewer_command_log_container", -1.0)
             app_state.log_dirty = False
+
+        if app_state.viewer_playback_status_dirty:
+            status_dirty = True
+            status_message = app_state.viewer_playback_status
+            app_state.viewer_playback_status_dirty = False
+
+        is_playing = app_state.sismo_running
+
+    is_connected = bool(app_state.ser and app_state.ser.is_open)
+
+    if dpg.does_item_exist("viewer_play_button"):
+        if is_playing or not is_connected:
+            dpg.disable_item("viewer_play_button")
+        else:
+            dpg.enable_item("viewer_play_button")
+
+    if dpg.does_item_exist("viewer_stop_button"):
+        if is_playing:
+            dpg.enable_item("viewer_stop_button")
+        else:
+            dpg.disable_item("viewer_stop_button")
+
+    if status_dirty and dpg.does_item_exist("viewer_playback_status_label"):
+        dpg.set_value("viewer_playback_status_label", f"Status: {status_message}")
 
 def create_gui():
     dpg.create_context()
