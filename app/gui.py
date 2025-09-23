@@ -162,6 +162,10 @@ def _update_viewer_detailed_plot():
     dpg.add_text(f"Status: {app_state.viewer_playback_status}",
                  tag="viewer_playback_status_label",
                  parent=parent_container)
+    dpg.add_separator(parent=parent_container)
+    dpg.add_text("Commands sent to motor", parent=parent_container)
+    with dpg.child_window(tag="viewer_command_log_container", parent=parent_container, height=140, border=True):
+        dpg.add_input_text(tag="viewer_command_log_output", multiline=True, readonly=True, width=-1, height=-1)
 
 
 def _viewer_amplitude_changed(sender, app_data):
@@ -209,6 +213,8 @@ def update_gui_callbacks():
             if dpg.does_item_exist("console_send_output"): dpg.set_value("console_send_output", "\n".join(app_state.log_sent))
             if dpg.does_item_exist("console_recv_container"): dpg.set_y_scroll("console_recv_container", -1.0)
             if dpg.does_item_exist("console_send_container"): dpg.set_y_scroll("console_send_container", -1.0)
+            if dpg.does_item_exist("viewer_command_log_output"): dpg.set_value("viewer_command_log_output", "\n".join(app_state.log_sent))
+            if dpg.does_item_exist("viewer_command_log_container"): dpg.set_y_scroll("viewer_command_log_container", -1.0)
             app_state.log_dirty = False
 
         if app_state.viewer_playback_status_dirty:
