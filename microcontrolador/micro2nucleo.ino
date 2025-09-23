@@ -4,17 +4,15 @@
 #include <Wire.h>
 
 #define STEP_PIN 26
-#define DIR_PIN 25
+#define DIR_PIN 27 
+#define ENABLE_PIN 14 
 
 FastAccelStepperEngine engine;
 FastAccelStepper *stepper = nullptr;
-
 AS5600 encoder;
-
 const int CPR = 4096;             // cuentas por vuelta del AS5600
 const uint32_t SAMPLE_MS = 5;     // muestreo del encoder (ms)
 int MAX_ACCEPTABLE_DELTA = 1500;  // umbral para rechazar spikes (ajustable)
-
 volatile int32_t position_counts = 0;  // acumulador de delta en cuentas (puede ser negativo)
 volatile int16_t last_raw = -1;
 
@@ -23,18 +21,15 @@ void readEncoderTask(void *param) {
   int32_t countsCopy;
   for (;;) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SAMPLE_MS));
-
     int16_t raw = encoder.rawAngle();  // 0..4095
     if (last_raw < 0) {
       last_raw = raw;
       continue;
     }
     int delta = raw - last_raw;
-
     // unwrap  podria servir aumentar el valor
     if (delta > (CPR / 2)) delta -= CPR;
     else if (delta < -(CPR / 2)) delta += CPR;
-
     if (abs(delta) <= MAX_ACCEPTABLE_DELTA) {
       position_counts += delta;
     }
@@ -51,34 +46,31 @@ void setup() {
   Wire.begin();
   Wire.setClock(400000);
 
-  if (!encoder.begin()) {
+  if (!encoder.isConnected()) {
     Serial.println("AS5600 no detectado. Revisa conexiones.");
     while (1) delay(1000);
   }
-
   engine.init();
   stepper = engine.stepperConnectToPin(STEP_PIN);
   if (stepper) {
     stepper->setDirectionPin(DIR_PIN);
-    stepper->setAutoEnable(true);
+    stepper->setEnablePin(ENABLE_PIN);
+    stepper->setAutoEnable(true); 
     stepper->setSpeedInHz(200000);
     stepper->setAcceleration(32000);
   } else {
     Serial.println("Stepper motor initialization failed!");
     while (1);
   }
-  Serial.println("System Initialized. Ready for commands.");
-  Serial.println("Commands:");
-  Serial.println("  M<position> - Move to absolute position (e.g., M1600)");
-  Serial.println("  S<speed> - Set speed in Hz (e.g., S1000)");
-  Serial.println("  A<acceleration> - Set acceleration in steps/s^2 (e.g., A2000)");
+  Serial.println("Sistema inicializado. Listo para recibir comandos.");
+  Serial.println("Comandos: m<pos>, s<vel>, a<acel>, e<0/1>");
+  
   if (!encoder.detectMagnet()) {
     Serial.println("ADVERTENCIA: No se detecta iman");
   } else {
     uint16_t strength = encoder.readMagnitude();
     Serial.print("iman detectado. Intensidad: ");
     Serial.println(strength);
-
     if (strength < 300) {
       Serial.println("Imán muy débil - acércalo mas");
     } else if (strength > 800) {
@@ -101,6 +93,6 @@ void loop() {
       stepper->setSpeedInHz(data);
     } else if (command.startsWith("a")) {
       stepper->setAcceleration(data);
-    }
+    } 
   }
 }
