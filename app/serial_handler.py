@@ -98,10 +98,17 @@ def wave_generator_thread():
     frequency = dpg.get_value("frequency_slider")
     start_time = time.time()
     
+    previous_position = 0
     while app_state.wave_running:
         elapsed_time = time.time() - start_time
         target_pos = amplitude * math.sin(2 * math.pi * frequency * elapsed_time)
-        send_command(f"m{int(target_pos)}")
+        target_steps = int(target_pos)
+        delta_steps = target_steps - previous_position
+        if delta_steps != 0:
+            send_command(f"m{delta_steps}")
+        previous_position = target_steps
         time.sleep(0.02)
-    
+
+    if previous_position != 0:
+        send_command(f"m{-previous_position}")
     send_command("m0")
