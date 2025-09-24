@@ -113,20 +113,34 @@ def play_local_sismo_thread():
         with app_state.data_lock: app_state.x_data.clear(); app_state.y_data.clear(); app_state.expected_wave_data.clear()
         app_state.plot_start_time = time.time(); sample_interval = trace.stats.delta
         
+        previous_position = 0
+        last_sample_time = 0.0
         for position in scaled_data:
             if not app_state.sismo_running:
                 app_state.sismo_playback_status_message = "Reproducción detenida."
                 break
-            send_command(f"m{position}")
+            target_position = int(position)
+            delta_steps = target_position - previous_position
+            if delta_steps != 0:
+                send_command(f"m{delta_steps}")
+            previous_position = target_position
+
             current_time = time.time() - app_state.plot_start_time
+            last_sample_time = current_time
             with app_state.data_lock:
-                app_state.expected_wave_data.append((current_time, position))
+                app_state.expected_wave_data.append((current_time, target_position))
                 if len(app_state.expected_wave_data) > app_state.max_points: app_state.expected_wave_data.popleft()
             time.sleep(sample_interval)
 
     except Exception as e:
         app_state.sismo_playback_status_message = f"Error: {e}"
     finally:
+        if 'previous_position' in locals() and previous_position != 0:
+            send_command(f"m{-previous_position}")
+            final_time = last_sample_time + sample_interval
+            with app_state.data_lock:
+                app_state.expected_wave_data.append((final_time, 0))
+                if len(app_state.expected_wave_data) > app_state.max_points: app_state.expected_wave_data.popleft()
         send_command("m0"); app_state.sismo_running = False
         app_state.sismo_playback_status_message = "Reproducción finalizada."
 

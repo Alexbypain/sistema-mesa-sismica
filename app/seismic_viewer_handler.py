@@ -248,6 +248,9 @@ def _playback_worker(trace, metadata):
 
     playback_offset = start_index * sample_interval
     playback_start = time.time() - playback_offset
+    previous_position = 0
+    last_sample_time = 0.0
+    stopped_by_user = False
     try:
         for raw_position in scaled_data:
             while True:
@@ -255,19 +258,25 @@ def _playback_worker(trace, metadata):
                     running = app_state.sismo_running
                     paused = app_state.viewer_playback_paused
                 if not running:
-                    _set_viewer_status("Playback stopped by user.")
-                    send_command("m0")
-                    return
+                    stopped_by_user = True
+                    break
                 if not paused:
                     break
                 time.sleep(0.05)
 
-            position = int(raw_position)
-            send_command(f"m{position}")
+            if stopped_by_user:
+                break
+
+            target_position = int(raw_position)
+            delta_steps = target_position - previous_position
+            if delta_steps != 0:
+                send_command(f"m{delta_steps}")
+            previous_position = target_position
 
             current_time = time.time() - playback_start
+            last_sample_time = current_time
             with app_state.data_lock:
-                app_state.expected_wave_data.append((current_time, position))
+                app_state.expected_wave_data.append((current_time, target_position))
                 if len(app_state.expected_wave_data) > app_state.max_points:
                     app_state.expected_wave_data.popleft()
 
@@ -276,12 +285,23 @@ def _playback_worker(trace, metadata):
     except Exception as exc:
         _set_viewer_status(f"Error during playback: {exc}")
     else:
-        _set_viewer_status("Playback finished.")
+        if not stopped_by_user:
+            _set_viewer_status("Playback finished.")
     finally:
+        if previous_position != 0:
+            send_command(f"m{-previous_position}")
+            final_time = last_sample_time + sample_interval
+            with app_state.data_lock:
+                app_state.expected_wave_data.append((final_time, 0))
+                if len(app_state.expected_wave_data) > app_state.max_points:
+                    app_state.expected_wave_data.popleft()
         send_command("m0")
         with app_state.data_lock:
             app_state.sismo_running = False
             app_state.viewer_playback_paused = False
+
+    if stopped_by_user:
+        _set_viewer_status("Playback stopped by user.")
 
 
 def stop_playback():
