@@ -179,7 +179,6 @@ def start_playback():
 
     with app_state.data_lock:
         app_state.sismo_running = True
-        app_state.viewer_playback_paused = False
 
     metadata = {
         'id': trace_info['id'],
@@ -200,7 +199,6 @@ def _playback_worker(trace, metadata):
         _set_viewer_status(f"Error: {exc}")
         with app_state.data_lock:
             app_state.sismo_running = False
-            app_state.viewer_playback_paused = False
         send_command("m0")
         return
 
@@ -209,25 +207,10 @@ def _playback_worker(trace, metadata):
         _set_viewer_status("Error: Trace produced no samples.")
         with app_state.data_lock:
             app_state.sismo_running = False
-            app_state.viewer_playback_paused = False
         send_command("m0")
         return
 
     sample_interval = max(sample_interval, 0.001)
-
-    with app_state.data_lock:
-        start_time = max(0.0, float(app_state.viewer_playback_start_time))
-
-    start_index = int(start_time / sample_interval) if sample_interval > 0 else 0
-    if start_index >= total_samples:
-        start_index = max(total_samples - 1, 0)
-
-    if start_index > 0:
-        scaled_data = scaled_data[start_index:]
-        total_samples = len(scaled_data)
-
-    with app_state.data_lock:
-        app_state.viewer_playback_paused = False
 
     with app_state.data_lock:
         app_state.expected_wave_data.clear()
@@ -240,43 +223,22 @@ def _playback_worker(trace, metadata):
     if dpg.does_item_exist("accel_input"):
         send_command(f"a{dpg.get_value('accel_input')}")
 
-    if start_index > 0:
-        _set_viewer_status(
-            f"Playing {total_samples} samples from {metadata.get('file_name', 'trace')} (starting at {start_time:.2f}s)...")
-    else:
-        _set_viewer_status(f"Playing {total_samples} samples from {metadata.get('file_name', 'trace')}...")
+    _set_viewer_status(f"Playing {total_samples} samples from {metadata.get('file_name', 'trace')}...")
 
-    playback_offset = start_index * sample_interval
-    playback_start = time.time() - playback_offset
-    previous_position = 0
-    last_sample_time = 0.0
-    stopped_by_user = False
+    playback_start = time.time()
     try:
         for raw_position in scaled_data:
-            while True:
-                with app_state.data_lock:
-                    running = app_state.sismo_running
-                    paused = app_state.viewer_playback_paused
-                if not running:
-                    stopped_by_user = True
-                    break
-                if not paused:
-                    break
-                time.sleep(0.05)
+            if not app_state.sismo_running:
+                _set_viewer_status("Playback stopped by user.")
+                send_command("m0")
+                return
 
-            if stopped_by_user:
-                break
-
-            target_position = int(raw_position)
-            delta_steps = target_position - previous_position
-            if delta_steps != 0:
-                send_command(f"m{delta_steps}")
-            previous_position = target_position
+            position = int(raw_position)
+            send_command(f"m{position}")
 
             current_time = time.time() - playback_start
-            last_sample_time = current_time
             with app_state.data_lock:
-                app_state.expected_wave_data.append((current_time, target_position))
+                app_state.expected_wave_data.append((current_time, position))
                 if len(app_state.expected_wave_data) > app_state.max_points:
                     app_state.expected_wave_data.popleft()
 
@@ -285,23 +247,11 @@ def _playback_worker(trace, metadata):
     except Exception as exc:
         _set_viewer_status(f"Error during playback: {exc}")
     else:
-        if not stopped_by_user:
-            _set_viewer_status("Playback finished.")
+        _set_viewer_status("Playback finished.")
     finally:
-        if previous_position != 0:
-            send_command(f"m{-previous_position}")
-            final_time = last_sample_time + sample_interval
-            with app_state.data_lock:
-                app_state.expected_wave_data.append((final_time, 0))
-                if len(app_state.expected_wave_data) > app_state.max_points:
-                    app_state.expected_wave_data.popleft()
         send_command("m0")
         with app_state.data_lock:
             app_state.sismo_running = False
-            app_state.viewer_playback_paused = False
-
-    if stopped_by_user:
-        _set_viewer_status("Playback stopped by user.")
 
 
 def stop_playback():
@@ -309,27 +259,6 @@ def stop_playback():
     with app_state.data_lock:
         was_running = app_state.sismo_running
         app_state.sismo_running = False
-        app_state.viewer_playback_paused = False
 
     if was_running:
         _set_viewer_status("Stopping playback...")
-
-
-def toggle_pause_playback():
-    """Toggles between paused and resumed playback states."""
-    with app_state.data_lock:
-        is_running = app_state.sismo_running
-        is_paused = app_state.viewer_playback_paused
-
-    if not is_running:
-        _set_viewer_status("Playback is not running.")
-        return
-
-    with app_state.data_lock:
-        app_state.viewer_playback_paused = not is_paused
-        now_paused = app_state.viewer_playback_paused
-
-    if now_paused:
-        _set_viewer_status("Playback paused.")
-    else:
-        _set_viewer_status("Resuming playback...")

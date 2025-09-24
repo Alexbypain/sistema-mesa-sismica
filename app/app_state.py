@@ -23,5 +23,3 @@ viewer_data_dirty = threading.Event() # Event to notify GUI to update viewer
 viewer_playback_status = "Idle"
 viewer_playback_status_dirty = False
 viewer_playback_amplitude = 1600
-viewer_playback_start_time = 0.0
-viewer_playback_paused = False

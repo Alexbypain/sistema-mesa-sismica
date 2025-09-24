@@ -197,11 +197,8 @@ def _update_viewer_detailed_plot():
 
     with dpg.group(horizontal=True, parent=parent_container):
         dpg.add_button(label="Process", callback=svh.process_selected_trace, width=180, height=30)
-        dpg.add_button(label="Play on Table", tag="viewer_play_button", callback=svh.start_playback, width=160, height=30)
-        dpg.add_button(label="Pause", tag="viewer_pause_button", callback=svh.toggle_pause_playback, width=120, height=30)
+        dpg.add_button(label="Play on Table", tag="viewer_play_button", callback=svh.start_playback, width=180, height=30)
         dpg.add_button(label="Stop", tag="viewer_stop_button", callback=svh.stop_playback, width=120, height=30)
-    dpg.add_text("Selected start time: 0.00 s", tag="viewer_playback_marker_label", parent=parent_container)
-    _viewer_update_start_time_label(start_time)
     dpg.add_slider_int(label="Playback Amplitude (steps)",
                        tag="viewer_playback_amplitude_slider",
                        default_value=app_state.viewer_playback_amplitude,
@@ -273,10 +270,6 @@ def update_gui_callbacks():
             app_state.viewer_playback_status_dirty = False
 
         is_playing = app_state.sismo_running
-        is_paused = app_state.viewer_playback_paused
-        start_time = app_state.viewer_playback_start_time
-
-    _viewer_update_start_time_label(start_time)
 
     is_connected = bool(app_state.ser and app_state.ser.is_open)
 
@@ -285,14 +278,6 @@ def update_gui_callbacks():
             dpg.disable_item("viewer_play_button")
         else:
             dpg.enable_item("viewer_play_button")
-
-    if dpg.does_item_exist("viewer_pause_button"):
-        if is_playing:
-            dpg.enable_item("viewer_pause_button")
-            dpg.set_item_label("viewer_pause_button", "Resume" if is_paused else "Pause")
-        else:
-            dpg.disable_item("viewer_pause_button")
-            dpg.set_item_label("viewer_pause_button", "Pause")
 
     if dpg.does_item_exist("viewer_stop_button"):
         if is_playing:
