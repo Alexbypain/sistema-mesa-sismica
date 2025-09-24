@@ -3,7 +3,6 @@
 import dearpygui.dearpygui as dpg
 import threading
 import time
-import numpy as np
 
 import app_state
 from serial_handler import (find_serial_ports, connect_serial, disconnect_serial, send_command, wave_generator_thread)
@@ -101,9 +100,30 @@ def stop_wave_callback():
 
 def _viewer_on_trace_select(sender, app_data, user_data):
     """Callback triggered when a trace in the viewer is clicked."""
-    app_state.viewer_selected_trace_index = user_data
+    with app_state.data_lock:
+        app_state.viewer_selected_trace_index = user_data
+        app_state.viewer_playback_start_time = 0.0
     _update_viewer_file_tree()
     _update_viewer_detailed_plot()
+
+
+def _viewer_update_start_time_label(value: float) -> None:
+    """Updates the start time label below the detailed plot."""
+    if dpg.does_item_exist("viewer_playback_marker_label"):
+        dpg.set_value("viewer_playback_marker_label", f"Selected start time: {value:.2f} s")
+
+
+def _viewer_start_marker_changed(sender, app_data):
+    """Stores the start time selected with the draggable marker."""
+    try:
+        new_value = float(app_data)
+    except (TypeError, ValueError):
+        return
+
+    with app_state.data_lock:
+        app_state.viewer_playback_start_time = new_value
+
+    _viewer_update_start_time_label(new_value)
 
 def _update_viewer_file_tree():
     """Redraws the file list and traces in the left panel of the viewer."""
@@ -142,12 +162,39 @@ def _update_viewer_detailed_plot():
             f"Max Amplitude: {trace_data['max_amp']:.3e}")
     dpg.add_text(info, parent=parent_container)
     dpg.add_separator(parent=parent_container)
+    times = trace_data['times'].tolist()
+    samples = trace_data['data'].tolist()
+    min_time = float(times[0]) if times else 0.0
+    max_time = float(times[-1]) if times else 0.0
+
+    with app_state.data_lock:
+        start_time = float(app_state.viewer_playback_start_time)
+
+    if max_time < min_time:
+        max_time = min_time
+
+    start_time = min(max(start_time, min_time), max_time)
+
+    with app_state.data_lock:
+        app_state.viewer_playback_start_time = start_time
+
     with dpg.plot(label="Detailed View", height=-50, width=-1, parent=parent_container):
         x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Time (s)")
         with dpg.plot_axis(dpg.mvYAxis, label="Amplitude") as y_axis:
-            dpg.add_line_series(trace_data['times'].tolist(), trace_data['data'].tolist(), label=trace_data['id'])
+            dpg.add_line_series(times, samples, label=trace_data['id'])
+            if times:
+                dpg.add_drag_line(tag="viewer_playback_marker",
+                                  default_value=start_time,
+                                  vertical=True,
+                                  color=(255, 0, 0, 180),
+                                  thickness=2,
+                                  callback=_viewer_start_marker_changed,
+                                  clamped=True,
+                                  min_value=min_time,
+                                  max_value=max_time)
         dpg.fit_axis_data(x_axis)
         dpg.fit_axis_data(y_axis)
+
     with dpg.group(horizontal=True, parent=parent_container):
         dpg.add_button(label="Process", callback=svh.process_selected_trace, width=180, height=30)
         dpg.add_button(label="Play on Table", tag="viewer_play_button", callback=svh.start_playback, width=180, height=30)

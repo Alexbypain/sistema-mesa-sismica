@@ -37,7 +37,10 @@ def load_data_for_viewer_thread():
     # Reset state
     app_state.viewer_seismic_files.clear()
     app_state.viewer_all_traces.clear()
-    app_state.viewer_selected_trace_index = None
+    with app_state.data_lock:
+        app_state.viewer_selected_trace_index = None
+        app_state.viewer_playback_start_time = 0.0
+        app_state.viewer_playback_paused = False
 
     try:
         files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.mseed', '.msd', '.miniseed'))]
