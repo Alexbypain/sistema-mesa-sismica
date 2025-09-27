@@ -4,10 +4,6 @@
  
 software para el control de mesa sismica, que permite aprovechar la informacion publica que sobre los sismos
 
-Aquí tienes un **README.md** listo para tu repositorio. Puedes copiarlo tal cual y adaptarlo si cambias pines, nombres de carpetas o licencias. 
-
----
-
 # Mesa Sísmica de Bajo Costo con Control y GUI
 
 Sistema de **reproducción de acelerogramas reales** en una mesa sísmica de laboratorio. Convierte registros aceleración–tiempo en trayectorias de **posición** y las ejecuta en tiempo real mediante un **ESP32**, un **driver microstepping** y **realimentación** con encoder magnético **AS5600**. Incluye **interfaz gráfica** para cargar señales, monitorear la respuesta y operar la mesa.
@@ -139,7 +135,6 @@ python app.py
 
 ## 📚 Citar / Referencias
 
-Si usas este proyecto en tu trabajo académico, cita el repositorio y las fuentes de hardware/teoría (por ejemplo, textos de dinámica estructural y documentación de sensores/actuadores que utilices).
 
 ## 🤝 Contribuciones
 
@@ -152,10 +147,5 @@ Indica aquí tu licencia (p. ej., MIT, Apache-2.0 o CC BY-NC-SA).
 
 ## 📨 Contacto
 
-* Autor/es: *[tu nombre y correo]*
-* Lab/Universidad: *[tu institución]*
-* Dudas técnicas: issues del repositorio
-
----
-
-> Sugerencia: añade a `docs/` un **esquemático** (PDF/PNG), una **foto del montaje** y un **GIF** corto de la mesa ejecutando un acelerograma para que tu README luzca aún mejor.
+* Autor/es: Juan Sebastian Hernandez
+* Lab/Universidad: Universidad Cooperativa de Colombia
