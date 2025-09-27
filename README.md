@@ -1,9 +1,5 @@
-# 🌋 **Replica**
-## sistema de control para mesa sismica 
- ![LICENSE](https://www.gnu.org/graphics/agplv3-88x31.png)
- 
-software para el control de mesa sismica, que permite aprovechar la informacion publica que sobre los sismos
 
+ ![LICENSE](https://www.gnu.org/graphics/agplv3-88x31.png) 
 # Mesa Sísmica de Bajo Costo con Control y GUI
 
 Sistema de **reproducción de acelerogramas reales** en una mesa sísmica de laboratorio. Convierte registros aceleración–tiempo en trayectorias de **posición** y las ejecuta en tiempo real mediante un **ESP32**, un **driver microstepping** y **realimentación** con encoder magnético **AS5600**. Incluye **interfaz gráfica** para cargar señales, monitorear la respuesta y operar la mesa.
