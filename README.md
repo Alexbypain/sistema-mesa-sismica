@@ -12,16 +12,38 @@ Sistema de **reproducción de acelerogramas reales** en una mesa sísmica de lab
 * 🧰 **GUI** para carga de señales, control de ejecución, gráficos en tiempo real.
 * 🔌 **Hardware económico** y replicable (ESP32 + driver + motor + encoder).
 
-## 🧱 Arquitectura del Sistema
+## 🧱 Diagrama flujo
 
-```
-Acelerograma (a-t) --> Filtro/normalización --> ∫∫ --> Posición(t) --> Generador de pulsos
-                                                            |                       |
-                                                            v                       v
-                                                        ESP32 (STEP/DIR, PID) --> Driver --> Motor --> Mesa
-                                                                 |                                     ^
-                                                                 v                                     |
-                                                            Encoder AS5600  <------ Telemetría ---------
+```mermaid
+graph TD
+    subgraph PC["PC - Procesamiento y Control"]
+        A[Acelerograma a-t] --> B[Filtro/Normalización]
+        B --> C[Integración Doble ∫∫]
+        C --> D[Desplazamiento Deseado x_ref]
+        D --> CMD[Generación de Comandos STEP/DIR]
+        F[Monitor/Visualización]
+        POS[Posición Real x_actual] --> F
+        D --> F
+    end
+    
+    CMD -->|Serial/USB| G
+    
+    subgraph Mesa["Mesa Sísmica - Hardware"]
+        G[ESP32 Controlador]
+        K[Encoder AS5600]
+        GEN[Generador Pulsos STEP/DIR]
+        H[Driver Motor Stepper]
+        I[Motor Paso a Paso]
+        J[Actuador/Mesa]
+       
+        G -->|Comandos| GEN
+        GEN -->|STEP + DIR| H
+        H -->|Corriente| I
+        I -->|Movimiento| J
+        J -->|Rotación Eje| K
+        K -->|I2C SDA/SCL GPIO21/22| G
+        G -->|Feedback Serial| POS
+    end
 ```
 
 ## 🛒 Bill of Materials (BoM)
@@ -35,24 +57,6 @@ Acelerograma (a-t) --> Filtro/normalización --> ∫∫ --> Posición(t) --> Gen
 
 > ⚠️ Ajusta la selección según masa máxima en la mesa, carrera útil y aceleraciones objetivo.
 
-## 🧩 Estructura del Repositorio
-
-```
-.
-├── firmware/
-│   ├── src/                # Código ESP32 (Arduino/ESP-IDF)
-│   └── config.h            # Pines, pasos por vuelta, límites, PID
-├── gui/
-│   ├── requirements.txt    # Dependencias Python
-│   └── app.py              # Interfaz gráfica y pipeline de señales
-├── data/
-│   ├── samples/            # Acelerogramas de ejemplo
-│   └── outputs/            # Trayectorias generadas y logs
-├── docs/
-│   ├── wiring.pdf          # Esquemático/conexiones
-│   └── figures/            # Imágenes para el README/Informe
-└── README.md
-```
 
 ## 🔧 Conexiones (referencia)
 
