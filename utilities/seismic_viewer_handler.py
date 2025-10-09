@@ -15,7 +15,6 @@ from serial_handler import send_command
 
 RECORDS_FOLDER_NAME = "sismic_records"
 
-
 def _set_viewer_status(message: str) -> None:
     """Updates the shared playback status message and marks it dirty."""
     with app_state.data_lock:
@@ -117,7 +116,6 @@ def process_selected_trace():
             dpg.fit_axis_data("accel_x_axis")
             dpg.fit_axis_data("accel_y_axis")
 
-
 def _prepare_trace_for_playback(trace):
     """Generates the displacement sequence and sampling interval for playback."""
     working_trace = trace.copy()
@@ -145,7 +143,6 @@ def _prepare_trace_for_playback(trace):
         sample_interval = 0.01
 
     return scaled, float(sample_interval)
-
 
 def start_playback():
     """Starts a background thread to play the selected seismic trace on the motor."""
@@ -186,7 +183,6 @@ def start_playback():
 
     _set_viewer_status(f"Preparing {metadata['id']} for playback...")
     threading.Thread(target=_playback_worker, args=(trace_copy, metadata), daemon=True).start()
-
 
 def _playback_worker(trace, metadata):
     """Worker routine that streams the processed trace to the motor."""
@@ -249,7 +245,6 @@ def _playback_worker(trace, metadata):
         send_command("m0")
         with app_state.data_lock:
             app_state.sismo_running = False
-
 
 def stop_playback():
     """Signals the playback thread to stop streaming commands."""
