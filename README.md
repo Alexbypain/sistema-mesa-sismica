@@ -1,5 +1,4 @@
 
- ![LICENSE](https://www.gnu.org/graphics/agplv3-88x31.png) 
 # Mesa Sísmica de Bajo Costo con Control y GUI
 
 Sistema de **reproducción de acelerogramas reales** en una mesa sísmica de laboratorio. Convierte registros aceleración–tiempo en trayectorias de **posición** y las ejecuta en tiempo real mediante un **ESP32** y **realimentación** con encoder magnético **AS5600**.
@@ -153,27 +152,18 @@ graph LR
     UC5 -.->|require| UC1
     
 ```
-## 🗺️ Roadmap
 
-* Migración a **servomotor** + **PID avanzado** (o control en espacio de estados).
-* Mejoras de **filtrado** para reducir deriva post integración.
-* **Auto–calibración** de encoder / homing robusto.
-* Soporte para **múltiples ejes** y perfiles 6-DoF (futuro).
-* Exportación de **reportes** (PDF/CSV) con métricas de seguimiento.
+
+[## 🗺️ Roadmap * Migración a **servomotor** + **PID avanzado** (o control en espacio de estados). ]: # 
+[## * Mejoras de **filtrado** para reducir deriva post integración. ]: # 
+[## * **Auto–calibración** de encoder / homing robusto.]: # 
+[## * Soporte para **múltiples ejes** y perfiles 6-DoF (futuro).]: # 
+[## * Exportación de **reportes** (PDF/CSV) con métricas de seguimiento.]: # 
 
 [## 📚 Citar / Referencias]: # 
 
-
-## 🤝 Contribuciones
+[## 🤝 Contribuciones ]: # 
 
 ¡PRs bienvenidos! Abre un **issue** con: descripción, logs, versión de firmware/GUI, esquema de conexiones y archivos de prueba mínimos.
 
-## 📄 Licencia
-
-Indica aquí tu licencia (p. ej., MIT, Apache-2.0 o CC BY-NC-SA).
-`SPDX-License-Identifier: MIT`
-
-## 📨 Contacto
-
-* Autor/es: Juan Sebastian Hernandez
-* Lab/Universidad: Universidad Cooperativa de Colombia
+ ![LICENSE](https://www.gnu.org/graphics/agplv3-88x31.png) 
